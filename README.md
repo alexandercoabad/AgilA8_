@@ -6,6 +6,9 @@ Agila is Tagalog for "eagle" - specifically evoking the Philippine Eagle (Haribo
 ## Layout 
 <img width="6827" height="2258" alt="Agila8_" src="https://github.com/user-attachments/assets/29317fd4-c000-485a-b00a-d825338d79c3" />
 
+<img width="6827" height="2258" alt="image" src="https://github.com/user-attachments/assets/0bc5190d-672e-4a00-9ca1-b4d427df9281" />
+
+
 
 3D Viewer: https://gds-viewer.tinytapeout.com/?model=https://alexandercoabad.github.io/AgilA8_/tinytapeout.oas&pdk=sky130A
 
