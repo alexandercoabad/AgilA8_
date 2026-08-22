@@ -36,11 +36,22 @@ purpose-built blocks:
   general-purpose "arbitrary program plus separate scratch RAM" role.
 
 This on-chip storage is the reason the project targets `info.yaml`'s
-current **6x2** tile budget rather than the 1x2 the design started at -
-worth confirming against the real post-place-and-route numbers once
-this goes through `harden`, the same way every tile-budget change in
-this project's history has been checked against an actual GDS run
-rather than just an area estimate.
+current **4x2** tile budget rather than the 1x2 the design started at.
+That number came from an actual GDS run, not an area estimate - the
+same design first tried 6x2 tiles (comfortable, but wasteful once
+`shared_ram`'s merge cut on-chip flip-flop count by roughly 40%), then
+4x2 at the default `PL_TARGET_DENSITY_PCT: 45`, which took multiple
+hours of global placement without converging. Raising it to `50` (in
+`src/config.json`) let the same 4x2 floorplan pass in about 30 minutes.
+Cell count alone doesn't predict this: flattened synthesis puts this
+design at roughly 61% of the pre-merge design's cell count, comparable
+raw cells-per-die-area, but a much higher *mux* share of the design
+(largely the shared-engine and shared-RAM arbitration logic) than a
+flip-flop-dominated netlist has - and that logic mix, not just cell
+count, is what made the old density target too tight for this specific
+floorplan. If you change `shared_ram.v`/`qspi_shared_engine.v`
+substantially or resize the tile budget again, expect to revisit this
+value rather than assume the default is still appropriate.
 
 ### Everything else: external QSPI flash/PSRAM
 
@@ -246,18 +257,39 @@ correctly ignores it.
 
 ## How to test
 
-1. Program the test image onto the Pmod's flash chip (`test/imem.hex`,
-   built by `test/build_prog.py` - exercises every opcode plus the GPIO,
-   timer, and PWM registers) and leave the PSRAM chip's contents as-is;
-   the program initializes any RAM it depends on.
-2. Reset the design (`rst_n` low then high).
-3. Run the clock. The CPU fetches from flash and reads/writes RAM over
-   the shared SPI bus automatically - no host intervention needed once
-   running.
-4. Check final state against the golden reference model
-   (`test/golden.py`) - `test/TESTING.md` and `test/TESTING_round2.md`
-   document the expected register values, and the pipeline this was
-   last verified against.
+All tests run against real RTL in Icarus Verilog, not just a Python
+model - `test/sim_full_top.py` and `test/test_boundary_continuity.py`
+exist as *independent* cross-checks of the address-routing logic
+alongside the Verilog testbenches, not replacements for them.
+
+1. **`test/tb_bootloader.v`** - the primary end-to-end test. Bit-bangs
+   a small program in over `ui_in[0:2]` (see "Loading a program"
+   above), then checks it landed correctly in `shared_ram` and executed
+   correctly. Self-checking (`RESULT: PASS`/`FAIL`).
+2. **`test/tb_boundary.v`** (run `test/build_boundary_test.py` first to
+   generate its `imem.hex`) - regression test for the flash-address
+   continuity bug fixed in `tt_um_agila8.v` (a discontinuous rebase
+   exactly at IMEM 0x0100 that silently re-executed a flash program's
+   first 128 bytes for anything longer). Checks the final PC lands
+   exactly where continuous addressing predicts, not just register
+   values - see the test's own header for why register values alone
+   can't reliably catch this specific bug (a reset-then-increment
+   register pattern nets to the same value whether the redundant lap
+   ran or not).
+3. **`test/tb_regression.v`** (run `test/build_flash_test.py` first) -
+   general-purpose flash-execution regression: ALU ops, PSRAM
+   read/write, and the boot_rom timeout -> FLASH_MODE handoff, checked
+   against known-good register/memory values.
+4. **`test/tb_debug6.v`** - a raw cycle-by-cycle trace tool (PC, key
+   registers, `shared_ram` contents) for debugging changes to this
+   logic; no pass/fail of its own.
+
+Each Verilog testbench that reads an `imem.hex` needs it generated
+first by its matching `build_*.py` script, and `vvp` needs to be run
+from `test/` so `$readmemh` finds it - the two `tb_*.v` files that use
+this file (`tb_boundary.v`, `tb_regression.v`) expect *different*
+program content, so regenerate the right one before switching between
+them.
 
 Before committing to a tapeout, the QSPI Pmod flash-read timing margin
 (`read_delay_cfg`, now handled centrally in `qspi_shared_engine.v`) is
